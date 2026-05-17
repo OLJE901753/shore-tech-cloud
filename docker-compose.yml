@@ -1,0 +1,99 @@
+# Production (default): syncthing, filebrowser, nginx-proxy-manager, duckdns
+#   docker compose up -d
+# Interim fallback only (no router ports): profile tunnel-fallback
+#   ./scripts/tunnel-fallback.sh start
+# Named Cloudflare tunnel: profile tunnel-named + CLOUDFLARE_TUNNEL_TOKEN in .env
+
+services:
+  syncthing:
+    image: lscr.io/linuxserver/syncthing:latest
+    container_name: sync-syncthing
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+      SYNCTHING_HOSTNAME: ${SYNCTHING_HOSTNAME}
+    volumes:
+      - ./config/syncthing:/config
+      - ./data:/data
+    ports:
+      - "8384:8384"
+      - "22000:22000/tcp"
+      - "22000:22000/udp"
+      - "21027:21027/udp"
+    networks:
+      - sync_net
+
+  filebrowser:
+    image: filebrowser/filebrowser:latest
+    container_name: sync-filebrowser
+    restart: unless-stopped
+    user: "${PUID}:${PGID}"
+    environment:
+      TZ: ${TZ}
+      FB_DATABASE: /config/filebrowser.db
+    volumes:
+      - ./data:/srv
+      - ./config/filebrowser:/config
+    networks:
+      - sync_net
+
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: sync-npm
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "81:81"
+    volumes:
+      - ./config/npm/data:/data
+      - ./config/npm/letsencrypt:/etc/letsencrypt
+    networks:
+      - sync_net
+
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    container_name: sync-duckdns
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+      SUBDOMAINS: ${DUCKDNS_SUBDOMAIN}
+      TOKEN: ${DUCKDNS_TOKEN}
+      LOG_FILE: "false"
+    volumes:
+      - ./config/duckdns:/config
+    networks:
+      - sync_net
+
+  # Interim HTTPS when router does not forward 80/443 — use scripts/tunnel-fallback.sh
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: sync-cloudflared
+    restart: "no"
+    command: tunnel --no-autoupdate --url http://filebrowser:80
+    networks:
+      - sync_net
+    profiles:
+      - tunnel-fallback
+
+  cloudflared-named:
+    image: cloudflare/cloudflared:latest
+    container_name: sync-cloudflared-named
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    networks:
+      - sync_net
+    profiles:
+      - tunnel-named
+
+networks:
+  sync_net:
+    driver: bridge

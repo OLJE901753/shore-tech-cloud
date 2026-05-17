@@ -6,6 +6,12 @@ node_modules/
 .env.*
 !.env.example
 
+# Sync stack runtime (created by init.sh)
+config/
+data/
+.secrets/
+config/ssl/
+
 # Build / cache
 dist/
 build/
